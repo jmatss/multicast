@@ -1,6 +1,10 @@
+extern crate chrono;
+extern crate getopts;
+
+use chrono::prelude::*;
+use getopts::Options;
 use std::io::stdin;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, UdpSocket};
-use std::process::exit;
 use std::time::Duration;
 use std::{env, thread};
 
@@ -10,18 +14,16 @@ enum Action {
     Recv,
 }
 
-fn usage() {
-    println!(
-        "{0:-5} {1} {2}\n{3:-5} {1} {4}",
-        "send:",
+fn usage(opts: &Options) {
+    let brief = format!(
+        "{0:-7} {1} {2}\n{3:-7} {1} {4}",
+        "usage:",
         env::args().nth(0).unwrap(),
-        "<MCAST GROUP/IP> <PORT> [<AMOUNT> [<INTERVAL> [<SIZE>]]]",
-        "recv:",
-        "<MCAST GROUP/IP>"
+        "send <MCAST IP> <PORT> [options]",
+        "",
+        "recv <MCAST IP> <PORT>"
     );
-    println!("\n<AMOUNT> = amount of packets to send (default: 5)");
-    println!("<INTERVAL> = delay between sent packets in ms (default: 1000 ms)");
-    println!("<SIZE> = payload size per packet in bytes (default: 1 byte)");
+    print!("{}", opts.usage(&brief));
 }
 
 // default values
@@ -32,17 +34,45 @@ const MAX_SIZE: usize = 1 << 16; // arbitrary value
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let action = if args.len() == 2 {
+
+    let (a, i, s) = ("a", "i", "s");
+    let mut opts = Options::new();
+    opts.optopt(a, "amount", "amount of packets to send (default: 5)", "")
+        .optopt(
+            i,
+            "interval",
+            "delay between sent packets in ms (default: 1000 ms)",
+            "",
+        )
+        .optopt(
+            s,
+            "size",
+            "payload size per packet in bytes (default: 1 byte)",
+            "",
+        );
+
+    if args.len() < 4 {
+        usage(&opts);
+        return;
+    }
+
+    let action_string = args.get(1).unwrap();
+    if action_string.is_empty() {
+        usage(&opts);
+        return;
+    }
+
+    let action = if action_string == "recv" || action_string == "r" {
         Action::Recv
-    } else if args.len() > 2 && args.len() <= 6 {
+    } else if action_string == "send" || action_string == "s" {
         Action::Send
     } else {
-        usage();
+        usage(&opts);
         return;
     };
 
     let group = args
-        .get(1)
+        .get(2)
         .unwrap()
         .parse::<IpAddr>()
         .expect("unable to parse multicast address");
@@ -50,29 +80,36 @@ fn main() {
         panic!("specified address isn't a valid multicast address");
     }
 
+    let port = args
+        .get(3)
+        .unwrap()
+        .parse::<u16>()
+        .expect("unable to parse port from string to integer");
+
     if action == Action::Recv {
-        recv(group);
+        recv(group, port);
     } else {
-        let port = args
-            .get(2)
-            .unwrap()
-            .parse::<u16>()
-            .expect("unable to parse port from string to integer");
-        let amount = args
-            .get(3)
-            .unwrap_or(&AMOUNT.into())
+        // action == Action::Send
+        let matches = match opts.parse(&args[4..]) {
+            Ok(m) => m,
+            Err(e) => panic!(e.to_string()),
+        };
+
+        let amount = matches
+            .opt_str(a)
+            .unwrap_or(AMOUNT.into())
             .parse::<u64>()
             .expect("unable to parse amount from string to integer");
-        let interval = args
-            .get(4)
-            .unwrap_or(&INTERVAL.into())
+        let interval = matches
+            .opt_str(i)
+            .unwrap_or(INTERVAL.into())
             .parse::<u64>()
             .expect("unable to parse interval from string to integer");
-        let size = args
-            .get(5)
-            .unwrap_or(&SIZE.into())
+        let size = matches
+            .opt_str(s)
+            .unwrap_or(SIZE.into())
             .parse::<usize>()
-            .expect("unable to parse payload size from string to integer");
+            .expect("unable to parse size from string to integer");
 
         send(group, port, amount, interval, size);
     }
@@ -118,9 +155,9 @@ fn send(group: IpAddr, port: u16, amount: u64, interval: u64, size: usize) {
             group.to_string()
         };
 
-        let mut data = Vec::with_capacity(size);
-        for _ in 0..size {
-            data.push(0);
+        let mut data: Vec<u8> = Vec::with_capacity(size);
+        for i in 0..size {
+            data.push((i % 255) as u8);
         }
 
         let sleep_interval = Duration::from_millis(interval);
@@ -141,36 +178,44 @@ fn send(group: IpAddr, port: u16, amount: u64, interval: u64, size: usize) {
                         err
                     )
                 });
-            println!("Packet {} sent!", i + 1);
+
+            println!(
+                "{} : sent {} byte(s) to {}:{}",
+                Local::now().format("%H:%M:%S%.3f (%Z)"),
+                size,
+                group_string,
+                port.to_string()
+            );
         }
     });
 
     t.join().unwrap();
-    println!("DONE");
 }
 
-fn recv(group: IpAddr) {
+fn recv(group: IpAddr, port: u16) {
     let socket: UdpSocket;
     match group {
-        IpAddr::V4(ipv4) => {
-            socket = crate::bind(&Ipv4Addr::UNSPECIFIED.into(), 0);
+        IpAddr::V4(ip) => {
+            socket = crate::bind(&Ipv4Addr::UNSPECIFIED.into(), port);
             socket
-                .join_multicast_v4(&ipv4, &Ipv4Addr::UNSPECIFIED)
+                .join_multicast_v4(&ip, &Ipv4Addr::UNSPECIFIED)
                 .unwrap_or_else(|err| {
                     panic!(
-                        "unable to join multicast group {}: {:?}",
+                        "unable to join multicast group {}:{}: {:?}",
                         group.to_string(),
-                        err
+                        err,
+                        port
                     )
                 });
         }
-        IpAddr::V6(ipv6) => {
-            socket = crate::bind(&Ipv6Addr::UNSPECIFIED.into(), 0);
-            socket.join_multicast_v6(&ipv6, 0).unwrap_or_else(|err| {
+        IpAddr::V6(ip) => {
+            socket = crate::bind(&Ipv6Addr::UNSPECIFIED.into(), port);
+            socket.join_multicast_v6(&ip, 0).unwrap_or_else(|err| {
                 panic!(
-                    "unable to join multicast group {}: {:?}",
+                    "unable to join multicast group {}:{}: {:?}",
                     group.to_string(),
-                    err
+                    err,
+                    port
                 )
             });
         }
@@ -183,29 +228,34 @@ fn recv(group: IpAddr) {
         loop {
             match socket.recv_from(&mut buf) {
                 Ok((n, addr)) => {
-                    if n == 0 {
-                        println!("sender closed socket");
-                        exit(0);
-                    } else {
-                        println!(
-                            "received packet with {} byte(s) from {}!",
-                            n,
-                            addr.to_string()
-                        );
-                    }
+                    println!(
+                        "{} : received {} byte(s) from {}",
+                        Local::now().format("%H:%M:%S%.3f (%Z)"),
+                        n,
+                        addr.to_string()
+                    );
                 }
                 Err(e) => panic!("got error while receiving from socket: {:?}", e),
             }
         }
     });
 
-    println!("Joined multicast group {}", group.to_string());
-    println!("(press ENTER to exit)");
+    println!(
+        "Joined multicast group {} (press ENTER to exit)",
+        group.to_string(),
+    );
+
+    println!(
+        "Listening on socket {}",
+        socket_clone
+            .local_addr()
+            .expect("unable to get local address from socket"),
+    );
     let _ = stdin().read_line(&mut String::new());
 
     match group {
-        IpAddr::V4(ipv4) => socket_clone
-            .leave_multicast_v4(&ipv4, &Ipv4Addr::UNSPECIFIED)
+        IpAddr::V4(ip) => socket_clone
+            .leave_multicast_v4(&ip, &Ipv4Addr::UNSPECIFIED)
             .unwrap_or_else(|err| {
                 panic!(
                     "unable to leave multicast group {}: {:?}",
@@ -213,8 +263,8 @@ fn recv(group: IpAddr) {
                     err
                 )
             }),
-        IpAddr::V6(ipv6) => socket_clone
-            .leave_multicast_v6(&ipv6, 0)
+        IpAddr::V6(ip) => socket_clone
+            .leave_multicast_v6(&ip, 0)
             .unwrap_or_else(|err| {
                 panic!(
                     "unable to leave multicast group {}: {:?}",
