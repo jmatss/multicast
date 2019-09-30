@@ -181,13 +181,17 @@ fn recv(group: IpAddr) {
     thread::spawn(move || {
         let mut buf = [0; MAX_SIZE];
         loop {
-            match socket.recv(&mut buf) {
-                Ok(n) => {
+            match socket.recv_from(&mut buf) {
+                Ok((n, addr)) => {
                     if n == 0 {
                         println!("sender closed socket");
                         exit(0);
                     } else {
-                        println!("received packet with {} byte(s)!", n);
+                        println!(
+                            "received packet with {} byte(s) from {}!",
+                            n,
+                            addr.to_string()
+                        );
                     }
                 }
                 Err(e) => panic!("got error while receiving from socket: {:?}", e),
