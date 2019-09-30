@@ -30,12 +30,13 @@ fn usage(opts: &Options) {
 const AMOUNT: &str = "5";
 const INTERVAL: &str = "1000";
 const SIZE: &str = "1";
+const TTL: &str = "255";
 const MAX_SIZE: usize = 1 << 16; // arbitrary value
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let (a, i, s) = ("a", "i", "s");
+    let (a, i, s, t) = ("a", "i", "s", "t");
     let mut opts = Options::new();
     opts.optopt(a, "amount", "amount of packets to send (default: 5)", "")
         .optopt(
@@ -49,7 +50,8 @@ fn main() {
             "size",
             "payload size per packet in bytes (default: 1 byte)",
             "",
-        );
+        )
+        .optopt(t, "ttl", "time to live for packets (default: 255)", "");
 
     if args.len() < 4 {
         usage(&opts);
@@ -110,8 +112,13 @@ fn main() {
             .unwrap_or(SIZE.into())
             .parse::<usize>()
             .expect("unable to parse size from string to integer");
+        let ttl = matches
+            .opt_str(t)
+            .unwrap_or(TTL.into())
+            .parse::<u8>()
+            .expect("unable to parse ttl from string to integer");
 
-        send(group, port, amount, interval, size);
+        send(group, port, amount, interval, size, ttl);
     }
 }
 
@@ -132,8 +139,8 @@ fn bind(group: &IpAddr, port: u16) -> UdpSocket {
     })
 }
 
-fn send(group: IpAddr, port: u16, amount: u64, interval: u64, size: usize) {
-    if port == 0 || amount == 0 || interval == 0 || size == 0 {
+fn send(group: IpAddr, port: u16, amount: u64, interval: u64, size: usize, ttl: u8) {
+    if port == 0 || amount == 0 || interval == 0 || size == 0 || ttl == 0 {
         panic!("a given input is == 0");
     } else if size > MAX_SIZE {
         panic!(
@@ -166,7 +173,7 @@ fn send(group: IpAddr, port: u16, amount: u64, interval: u64, size: usize) {
                 thread::sleep(sleep_interval);
             }
             socket
-                .set_multicast_ttl_v4(255)
+                .set_multicast_ttl_v4(ttl as u32)
                 .expect("unable to set multicast ttl");
             socket
                 .send_to(&data, format!("{}:{}", group_string, port.to_string()))
