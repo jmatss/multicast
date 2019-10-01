@@ -12,7 +12,7 @@ Options:
 ```
 Examples:
 ```
-$ multicast recv 224.0.2.15 1337
+$ ./multicast recv 224.0.2.15 1337
 Joined multicast group 224.0.2.15 (press ENTER to exit)
 Listening on socket 0.0.0.0:1337
 22:30:50.132 (+02:00) : received 12 byte(s) from 192.168.10.2:51423
@@ -20,8 +20,10 @@ Listening on socket 0.0.0.0:1337
 22:30:52.154 (+02:00) : received 12 byte(s) from 192.168.10.2:51423
 ```
 ```
-$ multicast send 224.0.2.15 1337 -a 3 -i 1000 -s 12 -t 4
-16:30:50.120 (-04:00) : sent 12 byte(s) to 224.0.2.15:1337
-16:30:51.139 (-04:00) : sent 12 byte(s) to 224.0.2.15:1337
-16:30:52.140 (-04:00) : sent 12 byte(s) to 224.0.2.15:1337
+$ ./multicast send ff15:: 1337 -a 5 -i 1000 -s 8 -t 4
+07:29:28.606 (-04:00) : sent 8 byte(s) to [ff15::]:1337
+07:29:29.608 (-04:00) : sent 8 byte(s) to [ff15::]:1337
+07:29:30.610 (-04:00) : sent 8 byte(s) to [ff15::]:1337
+07:29:31.610 (-04:00) : sent 8 byte(s) to [ff15::]:1337
+07:29:32.612 (-04:00) : sent 8 byte(s) to [ff15::]:1337
 ```
